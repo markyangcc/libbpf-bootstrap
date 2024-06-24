@@ -4,6 +4,7 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
+#include "../../vmlinux/vmlinux.h"
 #include "virtio.h"
 
 #define ALIGN(x, a)	 __ALIGN(x, (typeof(x))(a)-1)
@@ -45,14 +46,17 @@ int BPF_KPROBE(kprobe_dev_id_show, struct device *device)
 	struct net_device *net_dev = container_of(device, struct net_device, dev);
 	struct virtnet_info *vnet_info = get_virtnet_info(net_dev);
 	int key = 0;
+	bpf_printk("virtio tx: vnet_info %p", vnet_info);
 
 	struct vqueue_event *qe = bpf_map_lookup_elem(&imap, &key);
 	if (!qe)
 		return 0;
+	bpf_printk("virtio tx: qe %p", qe);
 
-	int pid = bpf_get_current_pid_tgid() >> 32;
-	if (qe->pid != pid)
-		return 0;
+	// int pid = bpf_get_current_pid_tgid() >> 32;
+	// if (qe->pid != pid)
+	// 	return 0;
+	// bpf_printk("virtio tx: pid %d", pid);
 
 	int tx = qe->tx_idx;
 	qe->tx_idx++;
@@ -72,6 +76,8 @@ int BPF_KPROBE(kprobe_dev_id_show, struct device *device)
 	bpf_probe_read(&re->last_used_idx, sizeof(u16), &vvq->last_used_idx);
 	re->len = vring.num;
 
+	bpf_printk("virtio tx: pkt_in_queue %d,last_used %d", re->avail_idx - re->used_idx,re->last_used_idx);
+
 	return 0;
 }
 
@@ -86,13 +92,15 @@ int BPF_KPROBE(kprobe_dev_port_show, struct device *device)
 	struct virtnet_info *vi = get_virtnet_info(dev);
 	int key = 0;
 
+	bpf_printk("virtio rx: %p", dev);
+
 	e = bpf_map_lookup_elem(&imap, &key);
 	if (!e)
 		return 0;
 
-	int pid = bpf_get_current_pid_tgid() >> 32;
-	if (e->pid != pid)
-		return 0;
+	// int pid = bpf_get_current_pid_tgid() >> 32;
+	// if (e->pid != pid)
+	// 	return 0;
 
 	u64 rx = e->rx_idx;
 	e->rx_idx++;
@@ -113,6 +121,9 @@ int BPF_KPROBE(kprobe_dev_port_show, struct device *device)
 	bpf_probe_read(&ring->used_idx, sizeof(u16), &vring.used->idx);
 	bpf_probe_read(&ring->last_used_idx, sizeof(u16), &vvq->last_used_idx);
 	ring->len = vring.num;
+
+	bpf_printk("virtio rx: pkt_in_queue %d,last_used %d", ring->used_idx - ring->last_used_idx,ring->last_used_idx);
+
 	return 0;
 }
 
