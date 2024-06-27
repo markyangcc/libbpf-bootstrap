@@ -45,9 +45,10 @@ int BPF_KPROBE(kprobe_dev_id_show, struct device *device)
 {
 	struct net_device *net_dev = container_of(device, struct net_device, dev);
 	struct virtnet_info *vnet_info = get_virtnet_info(net_dev);
-	int key = 0;
 	bpf_printk("virtio tx: vnet_info %p", vnet_info);
 
+	// Load map to stroe data
+	int key = 0;
 	struct vqueue_event *qe = bpf_map_lookup_elem(&imap, &key);
 	if (!qe)
 		return 0;
@@ -58,25 +59,28 @@ int BPF_KPROBE(kprobe_dev_id_show, struct device *device)
 	// 	return 0;
 	// bpf_printk("virtio tx: pid %d", pid);
 
-	int tx = qe->tx_idx;
-	qe->tx_idx++;
+	// int tx = qe->tx_idx;
+	// qe->tx_idx++;
 
-	struct send_queue *sq;
-	bpf_probe_read(&sq, sizeof(sq), &vnet_info->sq);
-	sq = (char *)sq + tx * qe->sq_size;
-	struct virtqueue *vq;
-	bpf_probe_read(&vq, sizeof(vq), &sq->vq);
-	struct vring_virtqueue *vvq = container_of(vq, struct vring_virtqueue, vq);
-	struct vring vring;
-	bpf_probe_read(&vring, sizeof(vring), &vvq->split.vring);
-	struct vring_event *re = &qe->txs[tx & (MAX_QUEUE_NUM - 1)];
+	for (int i = 0; i < 32; i++) {
+		struct send_queue *sq;
+		bpf_probe_read(&sq, sizeof(struct send_queue *), &vnet_info->sq);
+		// sq = (char *)sq + tx * qe->sq_size;
+		struct virtqueue *vq;
+		bpf_probe_read(&vq, sizeof(struct virtqueue *), &sq->vq);
+		struct vring_virtqueue *vvq = container_of(vq, struct vring_virtqueue, vq);
+		struct vring vring;
+		bpf_probe_read(&vring, sizeof(vring), &vvq->split.vring);
 
-	bpf_probe_read(&re->avail_idx, sizeof(u16), &vring.avail->idx);
-	bpf_probe_read(&re->used_idx, sizeof(u16), &vring.used->idx);
-	bpf_probe_read(&re->last_used_idx, sizeof(u16), &vvq->last_used_idx);
-	re->len = vring.num;
-
-	bpf_printk("virtio tx: pkt_in_queue %d,last_used %d", re->avail_idx - re->used_idx,re->last_used_idx);
+		int queue = i & (MAX_QUEUE_NUM - 1);
+		struct vring_event *re = &qe->txs[queue];
+		bpf_probe_read(&re->avail_idx, sizeof(u16), &vring.avail->idx);
+		bpf_probe_read(&re->used_idx, sizeof(u16), &vring.used->idx);
+		bpf_probe_read(&re->last_used_idx, sizeof(u16), &vvq->last_used_idx);
+		// re->len = vring.num;
+		bpf_printk("virtio tx(%d): pkt_in_queue %d,last_used %d, nr_vring: %d", queue,
+			   (re->avail_idx) - (re->used_idx), *(&re->last_used_idx),  vring.num);
+	}
 
 	return 0;
 }
@@ -122,7 +126,8 @@ int BPF_KPROBE(kprobe_dev_port_show, struct device *device)
 	bpf_probe_read(&ring->last_used_idx, sizeof(u16), &vvq->last_used_idx);
 	ring->len = vring.num;
 
-	bpf_printk("virtio rx: pkt_in_queue %d,last_used %d", ring->used_idx - ring->last_used_idx,ring->last_used_idx);
+	bpf_printk("virtio rx: pkt_in_queue %d,last_used %d", ring->used_idx - ring->last_used_idx,
+		   ring->last_used_idx);
 
 	return 0;
 }
